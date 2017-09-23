@@ -8,9 +8,31 @@ $orders = get_open_orders();
 $currencies = get_currencies();
 $markets = get_markets();
 
+$pairs = array();
+
+/*
+"OrderUuid":"3498a343-ab66-4ce8-981c-8ea5cd4fe47a",
+"Exchange":"BTC-ARK",
+"TimeStamp":"2017-09-12T03:15:55.33",
+"OrderType":"LIMIT_SELL",
+"Limit":0.00083809,
+"Quantity":12.25540196,
+"QuantityRemaining":0.00000000,
+"Commission":0.00002567,
+"Price":0.01027112,
+"PricePerUnit":0.00083808000000000000,
+"IsConditional":false,
+"Condition":"NONE",
+"ConditionTarget":null,
+"ImmediateOrCancel":false,
+"Closed":"2017-09-12T03:15:55.423"}
+
+*/
+
 $results = array();
 
 $balances = get_balances();
+//      echo "PAIR      Total Trades            Total Volume    Total Buy Cost          Total Sell Value        Commission              Net Profit              Balance".PHP_EOL."           (Buys/Sells)".PHP_EOL;
         $abuys = 0;
         $asells = 0;
         $aamounttraded = 0;
@@ -21,10 +43,24 @@ $balances = get_balances();
         $anet = 0;
 
 
-foreach($config['pairs']['bittrex'] as $pair=>$data){
+foreach($markets as $m){
+$pair = $m['MarketName'];
+if(array_key_exists($pair,$config['pairs']['bittrex'])){
+$data = $config['pairs']['bittrex'][$pair];
+$havecoin = true;
+}else{
+$havecoin = false;
+}
+
 echo "Checking ".$pair.PHP_EOL;
         $hist = get_order_history($pair);
-
+        $summ = get_market_summary($pair);
+        $currency = str_replace('BTC-','',$pair);
+        $balance = array_key_exists($currency,$balances)?$balances[$currency]['balance']:0;
+        $boughtprices = array();
+        $boughtprice = 0;
+        $checkbal = $balance;
+        $droppoints=0;
 
         $buys = 0;
         $sells = 0;
@@ -43,26 +79,85 @@ echo "Checking ".$pair.PHP_EOL;
                         $buys++;
                         $tot_buy += $order['Price'];
                         $amounttraded += ($order['Quantity'] - $order['QuantityRemaining']);
+                        if($checkbal>0){
+                                $boughtprices[] = array('Quantity'=>($order['Quantity']-$order['QuantityRemaining']),'Price'=>$order['PricePerUnit']);
+                        }
+
                 }
                 $commission += $order['Commission'];
         }
-        $currency = str_replace('BTC-','',$pair);
-        $balance = array_key_exists($currency,$balances)?$balances[$currency]['balance']:0;
 
-
-$curtick = get_ticker($pair);
-$curbal = ($curtick['Last']*$balance)*0.9975;
+$curbal = $summ['Bid']*$balance;
 
 $gross = ($tot_sell+$curbal)-$tot_buy;
 $net = $gross-$commission;
-$profit = (($tot_sell+$curbal)/($tot_buy+$commission))-1;
+if($tot_sell>0 || $curbal>0){
+$profit = ((($tot_sell+$curbal)/($tot_buy+$commission))*100)-100;
+}else{
+$profit=0;
+}
+
+if(count($boughtprices)>1){
+$u=$p=0;
+foreach($boughtprices as $d){
+        $u+=$d['Quantity'];
+        $p+=$d['Quantity']*$d['Price'];
+}
+$boughtprice = round(($p/$u),8);
+}elseif(count($boughtprices)==1){
+        $boughtprice = $boughtprices[0]['Price'];
+}
+
+        echo "Stats for market ".$pair.PHP_EOL;
+        echo "Buys and Sells: ".($buys+$sells) . "  ($buys/$sells)".PHP_EOL;
+        echo "Volume Traded:" . round($amounttraded).($amounttraded>0?" since ".$hist[count($hist)-1]['TimeStamp']:"").PHP_EOL;
+        echo "Total Buy / Sell: " . number_format($tot_buy,8). "\t" . number_format($tot_sell,8).PHP_EOL;
+        echo "Current Balance: ALT (BTC): ".number_format($balance,2)." (".number_format($curbal,5).")".PHP_EOL;
+        echo "Last purchase price (averaged): ".$boughtprice." ".(count($boughtprices)>1?"(yes)":"").PHP_EOL;
+        echo "Gross profit: " . $gross.PHP_EOL;
+        echo "Commission paid on pair: " . $commission.PHP_EOL;
+        echo "net profit: ".$net." (".round($profit,2)."%)".PHP_EOL;
+
+echo "24h Volume BTC: ".$summ['BaseVolume'].PHP_EOL;
+echo "Open Orders: " . $summ['OpenBuyOrders'] . " / " . $summ['OpenSellOrders'].PHP_EOL;
+
+$trend = ($summ['Last']/$summ['PrevDay'])*100;
+$spread = (($summ['High']/$summ['Low'])*100)-100;
+
+echo "Last Price vs 24h: " . $summ['Last'] . " vs " . $summ['PrevDay'] . "(" .($trend>100?"UP ":"DOWN "). number_format($trend-100,1) . "%)".PHP_EOL;
+
+if($summ['BaseVolume']<50){
+//      echo "LOW VOLUME, Recommend ditching".PHP_EOL;
+        $droppoints++;
+}
+if($trend<60){
+//      echo "Large 24h Drop, Recommend ditching".PHP_EOL;
+        $droppoints++;
+}
+if(($summ['OpenBuyOrders']<100)||($summ['OpenSellOrders']<100)){
+//      echo "Few orders, recommend ditching".PHP_EOL;
+        $droppoints++;
+}
+if($spread<2){
+//      echo "Tight Spread, recommend dropping".PHP_EOL;
+        $droppoints++;
+}
+if($spread>40){
+//      echo "Massive Spread, recommend dropping".PHP_EOL;
+        $droppoints++;
+}
+
+if($havecoin && $droppoints>2){
+        echo "Good candidate to consider dropping".PHP_EOL;
+}
+
+if(!$havecoin && $droppoints==0){
+        echo "Good candidate to add".PHP_EOL;
+}
 
 
 
-        //echo "Stats for market ".$hist[0]['Exchange'].PHP_EOL;
-//      echo $pair;
-//      for($i=1;$i<(13-strlen($pair));$i++){echo " ";}
-//echo ($buys+$sells) . "  ($buys/$sells)\t\t" . round($amounttraded)."\t\t" . number_format($tot_buy,8). "\t\t" . number_format($tot_sell,8)."\t\t" . $gross."         " . $commission."               " . $net."   ".round($profit,2)."%   ".$balance.PHP_EOL;
+echo PHP_EOL.PHP_EOL.PHP_EOL;
 
         $results[$pair] = array('buys'=>$buys,'sells'=>$sells,'amount'=>$amounttraded,'tot_buy'=>$tot_buy,'tot_sell'=>$tot_sell,'commission'=>$commission,'net'=>$net, 'gross'=>$gross,'profit'=>$profit,'balance'=>$balance);
 
@@ -74,29 +169,28 @@ $profit = (($tot_sell+$curbal)/($tot_buy+$commission))-1;
         $atot_sell += $tot_sell;
         $agross += $gross;
         $anet += $net;
-
 }
 
-$aprofit = ($atot_sell/($atot_buy-$acommission))-1;
+$aprofit = (($atot_sell-$atot_buy-$acommission)/$atot_sell)*100;
 
 
 
 uasort($results,'sort_profit');
-        echo "PAIR\t\tTotal Trades\tTotal Volume\tTotal Buy Cost\t\tTotal Sell Value\tGross Profit\t\tCommission\t\tNet Profit\t\tBalance".PHP_EOL."           (Buys/Sells)".PHP_EOL;
+        echo "PAIR\t\tTotal Trades\tTotal Volume\tTotal Buy Cost\t\tTotal Sell Value\tCommission\t\tNet Profit\t\tBalance".PHP_EOL."           (Buys/Sells)".PHP_EOL;
 $c=0;
 foreach($results as $p=>$r){
 $c++;
 if($c>20){
-        echo "PAIR\t\tTotal Trades\tTotal Volume\tTotal Buy Cost\t\tTotal Sell Value\tGross Profit\t\tCommission\t\tNet Profit\t\tBalance".PHP_EOL."           (Buys/Sells)".PHP_EOL;
+        echo "PAIR\t\tTotal Trades\tTotal Volume\tTotal Buy Cost\t\tTotal Sell Value\tCommission\t\tNet Profit\t\tBalance".PHP_EOL."           (Buys/Sells)".PHP_EOL;
         $c=0;
 }
 
-        echo $p.(strlen($pair)<8?"\t\t":"\t").($r['buys']+$r['sells']).' ('.$r['buys'].'/'.$r['sells'].')'."\t".$r['amount']."\t\t".number_format($r['tot_buy'],8)."\t\t".number_format($r['tot_sell'],8)."\t".number_format($r['gross'],8)."\t\t".number_format($r['commission'],8)."\t\t".number_format($r['net'],8)."\t\t".$r['balance'].PHP_EOL;
+        echo $p.(strlen($pair)<8?"\t\t":"\t").($r['buys']+$r['sells']).' ('.$r['buys'].'/'.$r['sells'].')'."\t".$r['amount']."\t\t".number_format($r['tot_buy'],8)."\t\t".number_format($r['tot_sell'],8)."\t".number_format($r['commission'],8)."\t\t".number_format($r['net'],8)."\t\t".number_format($r['profit'],2)."%\t\t".$r['balance'].PHP_EOL;
 }
 if($c>8){
-        echo "PAIR\t\tTotal Trades\tTotal Volume\tTotal Buy Cost\t\tTotal Sell Value\tGross Profit\t\tCommission\t\tNet Profit\t\tBalance".PHP_EOL."           (Buys/Sells)".PHP_EOL;
+        echo "PAIR\t\tTotal Trades\tTotal Volume\tTotal Buy Cost\t\tTotal Sell Value\tCommission\t\tNet Profit\t\tBalance".PHP_EOL."           (Buys/Sells)".PHP_EOL;
 }
-echo "TOTAL\t\t".($abuys+$asells) . "\t\t" . round($aamounttraded)."\t\t" . number_format($atot_buy,8). "\t\t" . number_format($atot_sell,8)."\t\t" . $agross."         " . $acommission."              " . $anet."  ".round($aprofit,2)."%  ".PHP_EOL;
+echo "TOTAL\t\t".($abuys+$asells) . "\t\t" . round($aamounttraded)."\t\t" . number_format($atot_buy,8). "\t\t" . number_format($atot_sell,8)."\t\t" . $acommission."            " . $anet."     ".round($aprofit,2)."%       ".PHP_EOL;
 echo "\t\t\t($abuys/$asells)\t\t".PHP_EOL;
 
 
@@ -152,6 +246,15 @@ function get_open_orders(){
 
 function get_markets(){
         return bittrex_api_query('public/getmarkets');
+}
+
+function get_market_summaries(){
+        return bittrex_api_query('public/getmarketsummaries');
+}
+
+function get_market_summary($pair){
+        $arr = bittrex_api_query('public/getmarketsummary',array('market'=>$pair));
+        return $arr[0];
 }
 
 function get_currencies(){

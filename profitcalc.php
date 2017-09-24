@@ -69,6 +69,7 @@ echo "Checking ".$pair.PHP_EOL;
 			$amounttraded += ($order['Quantity'] - $order['QuantityRemaining']);
 			if($checkbal>0){
 				$boughtprices[] = array('Quantity'=>($order['Quantity']-$order['QuantityRemaining']),'Price'=>$order['PricePerUnit']);
+				$checkbal -= ($order['Quantity']-$order['QuantityRemaining']);
 			}
 
 		}
@@ -86,7 +87,6 @@ $profit=0;
 }
 
 if(count($boughtprices)>1){
-var_export($boughtprices);
 $u=$p=0;
 foreach($boughtprices as $d){
 	$u+=$d['Quantity'];

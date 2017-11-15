@@ -10,9 +10,6 @@ $orders = get_open_orders();
 $currencies = get_currencies();
 $markets = get_markets();
 
-
-var_dump($orders);
-
 if(count($orders)>0){
 foreach($orders as $key=>$order){
 

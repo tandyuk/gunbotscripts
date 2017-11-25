@@ -231,11 +231,11 @@ if(!$quietmode) echo PHP_EOL.PHP_EOL.PHP_EOL;
 	$anet += $net;
 	
 	
-//	if($quietmode){
+	if($quietmode){
 //	echo "Total pairs: $totalpairs".PHP_EOL."Current: $currentpair $pair".PHP_EOL;
 		$pc = round((($currentpair/$totalpairs)*100)/2,0);
 		echo "Processing Pair " . $currentpair . "/". $totalpairs . '  ' . str_repeat("#",$pc) . "\r";
-//	}
+	}
 	
 	
 }
